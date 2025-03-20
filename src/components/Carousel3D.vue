@@ -59,12 +59,20 @@
 </template>
 
 <script lang="ts">
-export default {
+import { defineComponent, ref, onMounted, onBeforeUnmount, watch } from 'vue'
+
+// Define item interface
+interface CarouselItem {
+  image: string
+  alt?: string
+}
+
+export default defineComponent({
   name: 'Carousel3D',
   props: {
     // Items to display in the carousel
     items: {
-      type: Array,
+      type: Array as () => CarouselItem[],
       required: true,
       default: () => [],
     },
@@ -147,316 +155,324 @@ export default {
       default: false,
     },
   },
-  data() {
-    return {
-      currentAngle: 0,
-      isDragging: false,
-      startX: 0,
-      lastX: 0,
-      startAngle: 0,
-      velocity: 0,
-      lastTimestamp: 0,
-      animationId: null,
-      autoRotateId: null,
-      lastAutoRotateTime: 0,
-    }
-  },
-  mounted() {
-    // Prevent browser's default drag behavior
-    this.$el.addEventListener('dragstart', (e) => e.preventDefault())
+  setup(props, { emit }) {
+    // Refs
+    const wheel = ref<HTMLDivElement | null>(null)
+    const currentAngle = ref(0)
+    const isDragging = ref(false)
+    const startX = ref(0)
+    const lastX = ref(0)
+    const startAngle = ref(0)
+    const velocity = ref(0)
+    const lastTimestamp = ref(0)
+    const animationId = ref<number | null>(null)
+    const autoRotateId = ref<number | null>(null)
+    const lastAutoRotateTime = ref(0)
 
-    // Add event listeners for drag
-    document.addEventListener('mousemove', this.onDrag)
-    document.addEventListener('mouseup', this.stopDrag)
-    document.addEventListener('mouseleave', this.stopDrag)
-
-    // Add keyboard controls
-    document.addEventListener('keydown', this.handleKeyDown)
-
-    // Start auto-rotate if enabled
-    this.startAutoRotateIfEnabled()
-  },
-  beforeUnmount() {
-    // Clean up event listeners
-    document.removeEventListener('mousemove', this.onDrag)
-    document.removeEventListener('mouseup', this.stopDrag)
-    document.removeEventListener('mouseleave', this.stopDrag)
-    document.removeEventListener('keydown', this.handleKeyDown)
-
-    // Cancel any ongoing animations
-    if (this.animationId) {
-      cancelAnimationFrame(this.animationId)
-    }
-
-    // Cancel auto-rotate
-    this.stopAutoRotate()
-  },
-  watch: {
-    // Watch for changes to autoRotate prop
-    autoRotate(newValue) {
-      if (newValue) {
-        this.startAutoRotate()
-      } else {
-        this.stopAutoRotate()
-      }
-    },
-
-    // Watch for changes to autoRotateSpeed prop
-    autoRotateSpeed() {
-      if (this.autoRotate) {
-        // Restart auto-rotate with new speed
-        this.stopAutoRotate()
-        this.startAutoRotate()
-      }
-    },
-  },
-  methods: {
-    // Calculate transform for each item, exactly matching the original HTML implementation
-    getItemTransform(index) {
-      const angle = (index / this.items.length) * 360
+    // Methods
+    const getItemTransform = (index: number): string => {
+      const angle = (index / props.items.length) * 360
 
       return `
         rotateY(${angle}deg) 
         translateZ(-20px)
-        translateX(${this.radius}px)
+        translateX(${props.radius}px)
       `
-    },
+    }
 
-    // Navigation methods
-    prevItem() {
-      this.rotateWheel(this.rotationStep)
-    },
+    const prevItem = () => {
+      rotateWheel(props.rotationStep)
+    }
 
-    nextItem() {
-      this.rotateWheel(-this.rotationStep)
-    },
+    const nextItem = () => {
+      rotateWheel(-props.rotationStep)
+    }
 
-    // Simple micro-animation during rotation
-    applyMicroAnimation() {
-      const cards = this.$el.querySelectorAll('.absolute')
+    const applyMicroAnimation = () => {
+      if (!wheel.value) return
 
-      // Add a small pulse scale animation
+      const cards = wheel.value.querySelectorAll('.absolute')
+
       cards.forEach((card) => {
-        // Reset any previous inline transform
-        const currentTransform = card.style.transform
+        const currentTransform = (card as HTMLElement).style.transform
 
         // Apply a subtle pulse scale animation
-        card.style.transform = `${currentTransform.split('scale')[0]} scale(${this.pulseScale})`
+        ;(card as HTMLElement).style.transform =
+          `${currentTransform.split('scale')[0]} scale(${props.pulseScale})`
 
         // Reset after animation completes
         setTimeout(() => {
-          card.style.transform = currentTransform
-        }, this.pulseDuration)
+          ;(card as HTMLElement).style.transform = currentTransform
+        }, props.pulseDuration)
       })
-    },
+    }
 
-    // Rotate the wheel
-    rotateWheel(degrees) {
+    const rotateWheel = (degrees: number) => {
       // Stop auto-rotate temporarily
-      this.stopAutoRotate()
+      stopAutoRotate()
 
       // Cancel any ongoing animation
-      if (this.animationId) {
-        cancelAnimationFrame(this.animationId)
-        this.animationId = null
+      if (animationId.value) {
+        cancelAnimationFrame(animationId.value)
+        animationId.value = null
       }
 
       // Apply subtle micro-animation
-      this.applyMicroAnimation()
+      applyMicroAnimation()
 
       // Enable transition for smooth rotation
-      if (this.$refs.wheel) {
-        this.$refs.wheel.style.transition = 'transform 0.5s ease'
+      if (wheel.value) {
+        wheel.value.style.transition = 'transform 0.5s ease'
       }
 
       // Update angle
-      this.currentAngle += degrees
-      if (this.$refs.wheel) {
-        this.$refs.wheel.style.transform = `rotateY(${this.currentAngle}deg)`
+      currentAngle.value += degrees
+      if (wheel.value) {
+        wheel.value.style.transform = `rotateY(${currentAngle.value}deg)`
       }
 
       // Reset velocity and animation state
-      this.velocity = 0
-      this.lastTimestamp = 0
+      velocity.value = 0
+      lastTimestamp.value = 0
 
       // Reset transition after animation completes
       setTimeout(() => {
-        if (this.$refs.wheel) {
-          this.$refs.wheel.style.transition = 'none'
+        if (wheel.value) {
+          wheel.value.style.transition = 'none'
         }
 
         // Restart auto-rotate if it was enabled
-        if (this.autoRotate) {
-          this.startAutoRotate()
+        if (props.autoRotate) {
+          startAutoRotate()
         }
       }, 500)
-    },
+    }
 
-    // Mouse drag handlers
-    startDrag(e) {
+    const startDrag = (e: MouseEvent) => {
       e.preventDefault()
 
       // Stop auto-rotate while dragging
-      this.stopAutoRotate()
+      stopAutoRotate()
 
       // Stop any ongoing animation
-      if (this.animationId) {
-        cancelAnimationFrame(this.animationId)
-        this.animationId = null
+      if (animationId.value) {
+        cancelAnimationFrame(animationId.value)
+        animationId.value = null
       }
 
-      this.isDragging = true
-      this.startX = e.clientX
-      this.lastX = this.startX
-      this.startAngle = this.currentAngle
-      this.lastTimestamp = 0
-      this.velocity = 0
+      isDragging.value = true
+      startX.value = e.clientX
+      lastX.value = startX.value
+      startAngle.value = currentAngle.value
+      lastTimestamp.value = 0
+      velocity.value = 0
 
       // Disable transition during drag
-      if (this.$refs.wheel) {
-        this.$refs.wheel.style.transition = 'none'
+      if (wheel.value) {
+        wheel.value.style.transition = 'none'
       }
 
       // Change cursor
       document.body.style.cursor = 'grabbing'
-    },
+    }
 
-    onDrag(e) {
-      if (!this.isDragging) return
+    const onDrag = (e: MouseEvent) => {
+      if (!isDragging.value) return
 
       // Calculate velocity
       const now = performance.now()
-      const elapsed = now - this.lastTimestamp || 16
-      const deltaX = e.clientX - this.lastX
+      const elapsed = now - lastTimestamp.value || 16
+      const deltaX = e.clientX - lastX.value
 
       // Update velocity (scaled for rotation)
-      this.velocity = (deltaX * 0.3) / elapsed
+      velocity.value = (deltaX * 0.3) / elapsed
 
       // Calculate total rotation
-      const totalDeltaX = e.clientX - this.startX
-      const newAngle = this.startAngle + totalDeltaX * this.sensitivity
+      const totalDeltaX = e.clientX - startX.value
+      const newAngle = startAngle.value + totalDeltaX * props.sensitivity
 
       // Update wheel rotation
-      if (this.$refs.wheel) {
-        this.$refs.wheel.style.transform = `rotateY(${newAngle}deg)`
+      if (wheel.value) {
+        wheel.value.style.transform = `rotateY(${newAngle}deg)`
       }
-      this.currentAngle = newAngle
+      currentAngle.value = newAngle
 
       // Store position for next calculation
-      this.lastX = e.clientX
-      this.lastTimestamp = now
-    },
+      lastX.value = e.clientX
+      lastTimestamp.value = now
+    }
 
-    stopDrag() {
-      if (!this.isDragging) return
+    const stopDrag = () => {
+      if (!isDragging.value) return
 
-      this.isDragging = false
+      isDragging.value = false
 
       // Reset cursor
       document.body.style.cursor = 'default'
 
       // Start inertia animation
-      this.lastTimestamp = 0
-      this.animationId = requestAnimationFrame(this.applyInertia)
+      lastTimestamp.value = 0
+      animationId.value = requestAnimationFrame(applyInertia)
 
       // Restart auto-rotate after inertia if it was enabled
-      if (this.autoRotate) {
+      if (props.autoRotate) {
         // Wait for inertia to finish before restarting auto-rotate
         const checkInertiaFinished = () => {
-          if (this.animationId) {
+          if (animationId.value) {
             setTimeout(checkInertiaFinished, 100)
           } else {
-            this.startAutoRotate()
+            startAutoRotate()
           }
         }
 
         setTimeout(checkInertiaFinished, 100)
       }
-    },
+    }
 
-    // Apply inertial rotation
-    applyInertia(timestamp) {
-      if (!this.lastTimestamp) {
-        this.lastTimestamp = timestamp
-        this.animationId = requestAnimationFrame(this.applyInertia)
+    const applyInertia = (timestamp: number) => {
+      if (!lastTimestamp.value) {
+        lastTimestamp.value = timestamp
+        animationId.value = requestAnimationFrame(applyInertia)
         return
       }
 
-      const elapsed = timestamp - this.lastTimestamp
-      this.lastTimestamp = timestamp
+      const elapsed = timestamp - lastTimestamp.value
+      lastTimestamp.value = timestamp
 
       // Apply friction
-      this.velocity *= this.friction
+      velocity.value *= props.friction
 
       // Update angle based on velocity
-      this.currentAngle += (this.velocity * elapsed) / 16
+      currentAngle.value += (velocity.value * elapsed) / 16
 
-      if (this.$refs.wheel) {
-        this.$refs.wheel.style.transform = `rotateY(${this.currentAngle}deg)`
+      if (wheel.value) {
+        wheel.value.style.transform = `rotateY(${currentAngle.value}deg)`
       }
 
       // Apply micro-animation at start of inertial movement
-      if (Math.abs(this.velocity) > 1.5) {
-        this.applyMicroAnimation()
+      if (Math.abs(velocity.value) > 1.5) {
+        applyMicroAnimation()
       }
 
       // Continue animation or stop
-      if (Math.abs(this.velocity) > 0.1) {
-        this.animationId = requestAnimationFrame(this.applyInertia)
+      if (Math.abs(velocity.value) > 0.1) {
+        animationId.value = requestAnimationFrame(applyInertia)
       } else {
-        this.lastTimestamp = 0
-        this.velocity = 0
-        this.animationId = null
+        lastTimestamp.value = 0
+        velocity.value = 0
+        animationId.value = null
       }
-    },
+    }
 
-    // Keyboard controls
-    handleKeyDown(e) {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft') {
-        this.prevItem()
+        prevItem()
       } else if (e.key === 'ArrowRight') {
-        this.nextItem()
+        nextItem()
       }
-    },
+    }
 
-    // Auto-rotate methods
-    startAutoRotateIfEnabled() {
-      if (this.autoRotate) {
-        this.startAutoRotate()
+    const startAutoRotateIfEnabled = () => {
+      if (props.autoRotate) {
+        startAutoRotate()
       }
-    },
+    }
 
-    startAutoRotate() {
-      if (this.autoRotateId) return // Already running
+    const startAutoRotate = () => {
+      if (autoRotateId.value) return // Already running
 
-      this.lastAutoRotateTime = performance.now()
-      this.autoRotateId = requestAnimationFrame(this.updateAutoRotate)
-    },
+      lastAutoRotateTime.value = performance.now()
+      autoRotateId.value = requestAnimationFrame(updateAutoRotate)
+    }
 
-    stopAutoRotate() {
-      if (this.autoRotateId) {
-        cancelAnimationFrame(this.autoRotateId)
-        this.autoRotateId = null
+    const stopAutoRotate = () => {
+      if (autoRotateId.value) {
+        cancelAnimationFrame(autoRotateId.value)
+        autoRotateId.value = null
       }
-    },
+    }
 
-    updateAutoRotate(timestamp) {
-      const elapsed = timestamp - this.lastAutoRotateTime
-      this.lastAutoRotateTime = timestamp
+    const updateAutoRotate = (timestamp: number) => {
+      const elapsed = timestamp - lastAutoRotateTime.value
+      lastAutoRotateTime.value = timestamp
 
       // Calculate rotation amount based on speed (degrees per second)
-      const rotationAmount = (this.autoRotateSpeed * elapsed) / 1000
+      const rotationAmount = (props.autoRotateSpeed * elapsed) / 1000
 
       // Apply rotation in the specified direction
-      this.currentAngle += this.autoRotateClockwise ? rotationAmount : -rotationAmount
+      currentAngle.value += props.autoRotateClockwise ? rotationAmount : -rotationAmount
 
-      if (this.$refs.wheel) {
-        this.$refs.wheel.style.transform = `rotateY(${this.currentAngle}deg)`
+      if (wheel.value) {
+        wheel.value.style.transform = `rotateY(${currentAngle.value}deg)`
       }
 
       // Continue auto-rotation
-      this.autoRotateId = requestAnimationFrame(this.updateAutoRotate)
-    },
+      autoRotateId.value = requestAnimationFrame(updateAutoRotate)
+    }
+
+    // Lifecycle hooks
+    onMounted(() => {
+      // Prevent browser's default drag behavior
+      wheel.value?.addEventListener('dragstart', (e) => e.preventDefault())
+
+      // Add event listeners for drag
+      document.addEventListener('mousemove', onDrag)
+      document.addEventListener('mouseup', stopDrag)
+      document.addEventListener('mouseleave', stopDrag)
+
+      // Add keyboard controls
+      document.addEventListener('keydown', handleKeyDown)
+
+      // Start auto-rotate if enabled
+      startAutoRotateIfEnabled()
+    })
+
+    onBeforeUnmount(() => {
+      // Clean up event listeners
+      document.removeEventListener('mousemove', onDrag)
+      document.removeEventListener('mouseup', stopDrag)
+      document.removeEventListener('mouseleave', stopDrag)
+      document.removeEventListener('keydown', handleKeyDown)
+
+      // Cancel any ongoing animations
+      if (animationId.value) {
+        cancelAnimationFrame(animationId.value)
+      }
+
+      // Cancel auto-rotate
+      stopAutoRotate()
+    })
+
+    // Watchers
+    watch(
+      () => props.autoRotate,
+      (newValue) => {
+        if (newValue) {
+          startAutoRotate()
+        } else {
+          stopAutoRotate()
+        }
+      },
+    )
+
+    watch(
+      () => props.autoRotateSpeed,
+      () => {
+        if (props.autoRotate) {
+          // Restart auto-rotate with new speed
+          stopAutoRotate()
+          startAutoRotate()
+        }
+      },
+    )
+
+    return {
+      wheel,
+      getItemTransform,
+      prevItem,
+      nextItem,
+      startDrag,
+    }
   },
-}
+})
 </script>
