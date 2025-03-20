@@ -155,7 +155,7 @@ export default defineComponent({
       default: false,
     },
   },
-  setup(props, { emit }) {
+  setup(props) {
     // Refs
     const wheel = ref<HTMLDivElement | null>(null)
     const currentAngle = ref(0)
